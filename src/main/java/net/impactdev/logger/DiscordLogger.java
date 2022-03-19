@@ -15,11 +15,10 @@ public class DiscordLogger {
 
     public static final Logger LOGGER = LoggerFactory.getLogger("DiscordLogger");
 
-    private static final String PUBLIC_KEY = "OTUxMDA1MzgyMDQwNDkwMDA0.YihKxw.Om0yJX7fqOXS5LKFO3Dmu_dLz-c";
-
     public static void main(String[] args) {
         LOGGER.info(Markers.BOOT, "Booting logger service...");
-        JDABuilder builder = JDABuilder.createDefault(PUBLIC_KEY);
+        final String KEY = System.getProperty("bot-api-key");
+        JDABuilder builder = JDABuilder.createDefault(KEY);
         builder.disableCache(CacheFlag.ACTIVITY, CacheFlag.MEMBER_OVERRIDES, CacheFlag.VOICE_STATE, CacheFlag.CLIENT_STATUS);
         builder.setActivity(Activity.playing("Gisting Logs"));
         builder.setMemberCachePolicy(MemberCachePolicy.NONE);

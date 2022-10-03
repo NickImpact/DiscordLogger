@@ -3,7 +3,7 @@
     <Appenders>
         <Console name="STDOUT">
             <PatternLayout>
-                <Pattern>%d{HH:mm:ss} [%t] (%c{1}/%marker) %msg%n</Pattern>
+                <Pattern>%d{MM/dd/yyyy HH:mm:ss} [%t] (%c{1}/%marker) %msg%n</Pattern>
             </PatternLayout>        </Console>
         <RollingFile name="Standard" fileName="logs/latest.log"
                      filePattern="logs/$${date:yyyy-MM}/latest-%d{MM-dd-yyyy}-%i.log.gz">

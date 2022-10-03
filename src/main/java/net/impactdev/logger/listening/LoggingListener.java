@@ -21,6 +21,7 @@ import org.apache.http.client.methods.CloseableHttpResponse;
 import org.apache.http.client.methods.HttpPost;
 import org.apache.http.entity.ContentType;
 import org.apache.http.entity.StringEntity;
+import org.apache.http.impl.client.CloseableHttpClient;
 import org.apache.http.impl.client.HttpClients;
 import org.jetbrains.annotations.NotNull;
 
@@ -114,12 +115,21 @@ public class LoggingListener extends ListenerAdapter {
         return json;
     }
 
+    private boolean valid(String extension) {
+        return extension.equals("txt") ||
+                extension.equals("log") ||
+                extension.equals("conf") ||
+                extension.equals("json") ||
+                extension.equals("yml") ||
+                extension.equals("info");
+    }
+
     private CompletableFuture<JsonArray> compose(List<Message.Attachment> attachments) {
         AtomicBoolean pinged = new AtomicBoolean();
         List<CompletableFuture<JsonElement>> futures = attachments.stream()
                 .filter(attachment -> {
                     String extension = attachment.getFileExtension();
-                    return extension != null && (extension.equals("txt") || extension.equals("log"));
+                    return extension != null && this.valid(extension);
                 })
                 .peek(attachment -> {
                     if(!pinged.get()) {
@@ -188,25 +198,28 @@ public class LoggingListener extends ListenerAdapter {
         post.setHeader("Content-Type", ContentType.APPLICATION_JSON.getMimeType());
         post.setEntity(new StringEntity(PRETTY.toJson(json), Charsets.UTF_8));
 
-        CloseableHttpResponse response = HttpClients.createDefault().execute(post);
-        int status = response.getStatusLine().getStatusCode();
-        if(status != 201) {
-            String result = this.returnStringFromInputStream(response.getEntity().getContent());
-            JsonObject callback = GSON.fromJson(result, JsonObject.class);
-            String reason;
-            if(callback.has("message") && callback.get("message").isJsonPrimitive()) {
-                reason = callback.getAsJsonPrimitive("message").getAsString();
-            } else if(callback.getAsJsonPrimitive("error").getAsString().equals("bad_json")) {
-                reason = "Unacceptable JSON, perhaps due to incompatible characters?";
-            } else {
-                reason = "Unspecified";
+        try(CloseableHttpClient client = HttpClients.createDefault()) {
+            CloseableHttpResponse response = client.execute(post);
+            int status = response.getStatusLine().getStatusCode();
+            if(status != 201) {
+                String result = this.returnStringFromInputStream(response.getEntity().getContent());
+                DiscordLogger.LOGGER.error(result);
+                JsonObject callback = GSON.fromJson(result, JsonObject.class);
+                String reason;
+                if(callback.has("message") && callback.get("message").isJsonPrimitive()) {
+                    reason = callback.getAsJsonPrimitive("message").getAsString();
+                } else if(callback.getAsJsonPrimitive("error").getAsString().equals("bad_json")) {
+                    reason = "Unacceptable JSON, perhaps due to incompatible characters?";
+                } else {
+                    reason = "Unspecified";
+                }
+
+                throw new Exception("Received Status Code: " + status + " (" + reason + ")");
             }
 
-            throw new Exception("Received Status Code: " + status + " (" + reason + ")");
+            return GSON.fromJson(this.returnStringFromInputStream(response.getEntity().getContent()), JsonObject.class)
+                    .getAsJsonObject("result");
         }
-
-        return GSON.fromJson(this.returnStringFromInputStream(response.getEntity().getContent()), JsonObject.class)
-                .getAsJsonObject("result");
     }
 
     private String returnStringFromInputStream(InputStream in) {

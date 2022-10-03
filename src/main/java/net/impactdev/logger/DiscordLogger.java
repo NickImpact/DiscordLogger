@@ -23,6 +23,7 @@ public class DiscordLogger {
         builder.setActivity(Activity.playing("Gisting Logs"));
         builder.setMemberCachePolicy(MemberCachePolicy.NONE);
         builder.setChunkingFilter(ChunkingFilter.NONE);
+        builder.enableIntents(GatewayIntent.MESSAGE_CONTENT);
         builder.disableIntents(GatewayIntent.GUILD_PRESENCES, GatewayIntent.GUILD_MESSAGE_TYPING);
         builder.setLargeThreshold(50);
 

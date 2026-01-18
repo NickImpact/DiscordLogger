@@ -3,12 +3,12 @@
     <Appenders>
         <Console name="STDOUT">
             <PatternLayout>
-                <Pattern>%d{MM/dd/yyyy HH:mm:ss} [%t] (%c{1}/%marker) %msg%n</Pattern>
+                <Pattern>%d{MM/dd/yyyy HH:mm:ss} [%t/%level] (%c{1}/%marker) %msg%n</Pattern>
             </PatternLayout>        </Console>
         <RollingFile name="Standard" fileName="logs/latest.log"
                      filePattern="logs/$${date:yyyy-MM}/latest-%d{MM-dd-yyyy}-%i.log.gz">
             <PatternLayout>
-                <Pattern>%d{HH:mm:ss} [%t/%-5level] (%c{1}/%marker) %msg%n</Pattern>
+                <Pattern>%d{HH:mm:ss} [%t/%level] (%c{1}/%marker) %msg%n</Pattern>
             </PatternLayout>
             <Policies>
                 <TimeBasedTriggeringPolicy />
@@ -19,7 +19,7 @@
         <RollingFile name="Debug" fileName="logs/debug.log"
                      filePattern="logs/$${date:yyyy-MM}/debug-%d{MM-dd-yyyy}-%i.log.gz">
             <PatternLayout>
-                <Pattern>%d{HH:mm:ss} [%t/%-5level] (%c{1}/%marker) %msg%n</Pattern>
+                <Pattern>%d{HH:mm:ss} [%t/%level] (%c{1}/%marker) %msg%n</Pattern>
             </PatternLayout>
             <Policies>
                 <TimeBasedTriggeringPolicy />

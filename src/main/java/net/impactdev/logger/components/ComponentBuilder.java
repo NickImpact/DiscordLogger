@@ -1,6 +1,8 @@
 package net.impactdev.logger.components;
 
 import net.dv8tion.jda.api.components.MessageTopLevelComponent;
+import net.dv8tion.jda.api.components.actionrow.ActionRow;
+import net.dv8tion.jda.api.components.buttons.Button;
 import net.dv8tion.jda.api.components.container.Container;
 import net.dv8tion.jda.api.components.container.ContainerChildComponent;
 import net.dv8tion.jda.api.components.mediagallery.MediaGallery;
@@ -19,26 +21,31 @@ public final class ComponentBuilder {
     public static MessageTopLevelComponent create(List<TrackedFile> files, long userId) {
         List<ContainerChildComponent> components = new ArrayList<>();
 
-//        var banner = MediaGallery.of(MediaGalleryItem.fromFile(FileUpload.fromData(
-//                Objects.requireNonNull(ComponentBuilder.class.getClassLoader().getResourceAsStream("banner.png")),
-//                "banner.png"
-//        )));
-//        components.add(banner);
-
         var text = TextDisplay.of("## File Reupload\nAs the discord file viewer constrains the max viewable content, and to aid mobile users, your files have been reuploaded to help ease users who do not wish to download the content for a full view.");
         components.add(text);
-        components.add(Separator.createDivider(Separator.Spacing.SMALL));
 
-        boolean first = false;
+        for (final TrackedFile file : files) {
+            final var details = file.toComponent(userId);
+            components.add(Separator.createDivider(Separator.Spacing.SMALL));
+            components.addAll(details);
+        }
+
+        components.add(Separator.createDivider(Separator.Spacing.SMALL));
+        Button privacy = Button.link("https://github.com/NickImpact/DiscordLogger/blob/main/PRIVACY.md", "Privacy Policy");
+        components.add(ActionRow.of(privacy));
+        return Container.of(components);
+    }
+
+    public static MessageTopLevelComponent createDM(List<TrackedFile> files, long userId) {
+        List<ContainerChildComponent> components = new ArrayList<>();
+
+        var text = TextDisplay.of("## File Reupload Information\nIn the event the server which you uploaded files to deletes the message before you try to delete them, we've provided a secondary message just for you");
+        components.add(text);
+
         for (final TrackedFile file : files) {
             final var component = file.toComponent(userId);
-
-            if (first) {
-                components.add(Separator.createDivider(Separator.Spacing.SMALL));
-            }
-
+            components.add(Separator.createDivider(Separator.Spacing.SMALL));
             components.addAll(component);
-            first = true;
         }
 
         return Container.of(components);

@@ -40,6 +40,16 @@ public class LoggingListener extends ListenerAdapter {
             this.download(message.getAttachments()).thenAccept(files -> {
                 if (!files.isEmpty()) {
                     List<TrackedFile> tracks = this.endpoint.publish(member.getEffectiveName(), files);
+                    event.getAuthor().openPrivateChannel()
+                            .flatMap(channel -> channel.sendMessageComponents(ComponentBuilder.createDM(tracks, member.getIdLong())).useComponentsV2())
+                            .queue(
+                                    successful -> {},
+                                    failure -> DiscordLogger.LOGGER.warn(
+                                            "User {} has their DMs disabled, and was unable to receive the private DM",
+                                            event.getAuthor().getEffectiveName()
+                                    )
+                            );
+
                     MessageTopLevelComponent component = ComponentBuilder.create(tracks, member.getIdLong());
                     event.getChannel()
                             .sendMessageComponents(component)

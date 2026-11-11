@@ -1,36 +1,22 @@
 package net.impactdev.logger.listening;
 
-import com.google.common.util.concurrent.ThreadFactoryBuilder;
-import com.google.gson.JsonArray;
-import com.google.gson.JsonElement;
-import com.google.gson.JsonObject;
-import com.google.gson.JsonPrimitive;
-import net.dv8tion.jda.api.EmbedBuilder;
+import net.dv8tion.jda.api.components.MessageTopLevelComponent;
 import net.dv8tion.jda.api.entities.Member;
 import net.dv8tion.jda.api.entities.Message;
-import net.dv8tion.jda.api.entities.MessageEmbed;
-import net.dv8tion.jda.api.entities.User;
-import net.dv8tion.jda.api.events.guild.GuildJoinEvent;
+import net.dv8tion.jda.api.events.interaction.component.ButtonInteractionEvent;
 import net.dv8tion.jda.api.events.message.MessageReceivedEvent;
 import net.dv8tion.jda.api.hooks.ListenerAdapter;
 import net.impactdev.logger.DiscordLogger;
 import net.impactdev.logger.Markers;
+import net.impactdev.logger.components.ComponentBuilder;
 import net.impactdev.logger.endpoints.MclogsEndpoint;
 import net.impactdev.logger.endpoints.PublicationEndpoint;
+import net.impactdev.logger.files.TrackedFile;
+import net.impactdev.logger.files.UploadedFile;
 import org.jetbrains.annotations.NotNull;
 
-import java.io.BufferedReader;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.time.LocalDateTime;
-import java.util.Collections;
 import java.util.List;
-import java.util.Objects;
-import java.util.StringJoiner;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.function.BiFunction;
 
 public class LoggingListener extends ListenerAdapter {
 
@@ -41,13 +27,9 @@ public class LoggingListener extends ListenerAdapter {
     }
 
     @Override
-    public void onGuildJoin(@NotNull GuildJoinEvent event) {
-        DiscordLogger.LOGGER.info(Markers.JOIN, "Joining Guild: " + event.getGuild().getName());
-    }
-
-    @Override
     public void onMessageReceived(@NotNull MessageReceivedEvent event) {
         Message message = event.getMessage();
+
         if(!message.getAttachments().isEmpty()) {
             if(event.getMember() == null) {
                 DiscordLogger.LOGGER.info(Markers.PUBLISHING, "Attachments with no associated member, ignoring...");
@@ -55,38 +37,60 @@ public class LoggingListener extends ListenerAdapter {
             }
 
             Member member = event.getMember();
-            this.compose(message.getAttachments()).thenAccept(files -> {
+            this.download(message.getAttachments()).thenAccept(files -> {
                 if (!files.isEmpty()) {
-                    EmbedBuilder builder = new EmbedBuilder();
-                    builder.setColor(0x34ebde);
-                    builder.setThumbnail("https://wegotthiscovered.com/wp-content/uploads/2022/01/bidoof-pokemon-company-short.jpg");
-                    builder.addField("We Truly Adore Pasting", "Your logs have been uploaded to mclo.gs to aid viewers who wish not to download the files!", false);
-                    builder.setFooter("Translated For: " + member.getUser().getName() + "#" + member.getUser().getDiscriminator());
-                    builder.setTimestamp(LocalDateTime.now());
-
-                    JsonObject payload = this.prepare(member, files);
-                    MessageEmbed embed = this.endpoint.publish(member.getEffectiveName(), payload, builder);
-
-                    event.getMessage()
-                            .replyEmbeds(Collections.singleton(embed))
-                            .mentionRepliedUser(false)
+                    List<TrackedFile> tracks = this.endpoint.publish(member.getEffectiveName(), files);
+                    MessageTopLevelComponent component = ComponentBuilder.create(tracks, member.getIdLong());
+                    event.getChannel()
+                            .sendMessageComponents(component)
+                            .useComponentsV2()
                             .queue(
                                     success -> DiscordLogger.LOGGER.info(Markers.PUBLISHING, "Detailed response sent successfully"),
-                                    fatal -> DiscordLogger.LOGGER.error(Markers.PUBLISHING, "Failed to send message", fatal));
+                                    fatal -> DiscordLogger.LOGGER.error(Markers.PUBLISHING, "Failed to send message", fatal)
+                            );
 
+                }
+            }).whenComplete((ignored, failure) -> {
+                if (failure != null) {
+                    DiscordLogger.LOGGER.error(Markers.PUBLISHING, "Failed to process attachments", failure);
                 }
             });
         }
     }
 
-    private JsonObject prepare(Member member, JsonArray files) {
-        User user = member.getUser();
+    @Override
+    public void onButtonInteraction(@NotNull ButtonInteractionEvent event) {
+        DiscordLogger.LOGGER.info("Detected button interaction, processing...");
 
-        JsonObject json = new JsonObject();
-        json.add("name", new JsonPrimitive(user.getEffectiveName() + "'s Logs"));
-        json.add("files", files);
+        String component = event.getComponentId();
+        DiscordLogger.LOGGER.info("Component ID: {}", component);
+        if (component.contains(":")) {
+            String[] parts = component.split(":");
+            String action = parts[0];
+            String user = parts[1];
 
-        return json;
+            if (!event.getUser().getId().equals(user)) {
+                event.reply("This action is only allowed for the original file uploader")
+                        .setEphemeral(true)
+                        .queue();
+
+                return;
+            }
+
+            if (action.equals("delete")) {
+                String id = parts[2];
+                String token = parts[3];
+                if (this.endpoint.delete(id, token)) {
+                    event.reply("The uploaded file content has been deleted, future viewers will be unable to use the existing link")
+                            .setEphemeral(true)
+                            .queue();
+                } else {
+                    event.reply("Failed to delete the target file...")
+                            .setEphemeral(true)
+                            .queue();
+                }
+            }
+        }
     }
 
     private boolean valid(String extension) {
@@ -98,72 +102,26 @@ public class LoggingListener extends ListenerAdapter {
                 extension.equals("info");
     }
 
-    private CompletableFuture<JsonArray> compose(List<Message.Attachment> attachments) {
-        AtomicBoolean pinged = new AtomicBoolean();
-        List<CompletableFuture<JsonElement>> futures = attachments.stream()
+    private CompletableFuture<List<UploadedFile>> download(List<Message.Attachment> attachments) {
+        List<CompletableFuture<UploadedFile>> downloads = attachments.stream()
                 .filter(attachment -> {
                     String extension = attachment.getFileExtension();
                     return extension != null && this.valid(extension);
                 })
-                .peek(attachment -> {
-                    if(!pinged.get()) {
-                        DiscordLogger.LOGGER.info(Markers.PUBLISHING, "Found valid attachments to translate, processing now...");
-                        pinged.set(true);
-                    }
-                })
-                .map(attachment -> attachment.getProxy().download().thenApplyAsync(file -> {
-                    DiscordLogger.LOGGER.info(Markers.PUBLISHING, "File downloaded (" + attachment.getFileName() + "), converting to JSON...");
-
-                    try {
-                        return this.file(attachment, file);
-                    } catch (Exception e) {
-                        DiscordLogger.LOGGER.error(Markers.PUBLISHING, "Failed to serialize the file to JSON...", e);
-                        return null;
-                    }
-                }, DiscordLogger.EXECUTOR))
-                .filter(Objects::nonNull)
+                .map(attachment -> attachment.getProxy().download()
+                        .thenApply(stream -> {
+                            DiscordLogger.LOGGER.info(Markers.PUBLISHING, "File downloaded ({}), preparing for publication...", attachment.getFileName());
+                            return new UploadedFile(attachment.getFileName(), stream);
+                        }))
                 .toList();
 
-        if(futures.isEmpty()) {
-            return CompletableFuture.completedFuture(new JsonArray());
+        if (downloads.isEmpty()) {
+            return CompletableFuture.completedFuture(List.of());
         }
 
-        return this.compose$combine(futures);
-    }
-
-    private CompletableFuture<JsonArray> compose$combine(List<CompletableFuture<JsonElement>> elements) {
-        JsonArray json = new JsonArray();
-        BiFunction<JsonElement, JsonArray, JsonArray> consumer = (element, array) -> {
-            array.add(element);
-            return array;
-        };
-
-        CompletableFuture<JsonArray> result = elements.get(0).thenApply(element -> consumer.apply(element, json));
-        for(int i = 1; i < elements.size(); i++) {
-            final int index = i;
-            result = result.thenCompose(array -> elements.get(index).thenApply(element -> consumer.apply(element, json)));
-        }
-
-        return result;
-    }
-
-    private JsonElement file(Message.Attachment attachment, InputStream stream) throws IOException {
-        JsonObject json = new JsonObject();
-        json.add("name", new JsonPrimitive(attachment.getFileName()));
-
-        JsonObject content = new JsonObject();
-        content.add("format", new JsonPrimitive("text"));
-        try(BufferedReader reader = new BufferedReader(new InputStreamReader(stream))) {
-            StringJoiner joiner = new StringJoiner("\n");
-            String current;
-            while((current = reader.readLine()) != null) {
-                joiner.add(current);
-            }
-
-            content.add("value", new JsonPrimitive(joiner.toString()));
-        }
-
-        json.add("content", content);
-        return json;
+        return CompletableFuture.allOf(downloads.toArray(CompletableFuture[]::new))
+                .thenApply(ignored -> downloads.stream()
+                        .map(CompletableFuture::join)
+                        .toList());
     }
 }
